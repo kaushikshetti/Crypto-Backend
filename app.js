@@ -22,7 +22,7 @@ app.use(
   })
 );
 // Define a route to fetch the cryptocurrency categories and extract the market cap
-app.get("/", limiter, async (req, res) => {
+async function fetchCryptoData() {
   try {
     const response = await axios.get(
       "https://api.coingecko.com/api/v3/coins/categories"
@@ -41,12 +41,44 @@ app.get("/", limiter, async (req, res) => {
 
     const limitedMarketCaps = marketCaps.slice(0, 5);
 
-    // Send the extracted market cap data as a JSON response
-    res.json(limitedMarketCaps);
+    return {
+      categories: limitedMarketCaps,
+      maxMarketCap: Math.max(
+        ...limitedMarketCaps.map((category) => category.market_cap)
+      ),
+    };
   } catch (error) {
     console.error(error);
-    res.status(500).send("Internal Server Error");
+    throw error;
   }
+}
+
+// Create an SSE endpoint
+app.get("/sse", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const sendSSEData = async () => {
+    try {
+      const data = await fetchCryptoData();
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  // Send initial data immediately
+  await sendSSEData();
+
+  // Send updates every 5 seconds (adjust the interval as needed)
+  const interval = setInterval(sendSSEData, 5000);
+
+  // Close the SSE connection if the client disconnects
+  req.on("close", () => {
+    clearInterval(interval);
+    res.end();
+  });
 });
 
 app.listen(PORT, () => {
